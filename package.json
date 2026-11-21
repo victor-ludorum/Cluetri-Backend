@@ -1,0 +1,45 @@
+{
+  "name": "cluetri-backend",
+  "version": "2.5.0",
+  "description": "Cluetri Dating Coach & Text Signal Decoder Backend Services",
+  "main": "dist/src/index.js",
+  "type": "module",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf dist",
+    "start": "functions-framework --target=cluetriApi --port=8080",
+    "dev": "functions-framework --target=cluetriApi --port=8080",
+    "seed": "tsx scripts/seedFirestore.ts",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "keywords": [
+    "cluetri",
+    "dating-coach",
+    "icfu-telemetry",
+    "gcp-functions",
+    "firestore"
+  ],
+  "author": "Cluetri Engineering",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.0",
+    "@types/node": "^26.6.6",
+    "rimraf": "^6.1.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^5.0.5",
+    "@google/genai": "^3.3.0",
+    "cors": "^2.8.6",
+    "firebase-admin": "^14.5.1",
+    "firebase-functions": "^7.4.0",
+    "razorpay": "^2.9.8",
+    "stripe": "^23.1.0",
+    "zod": "^4.6.7"
+  }
+}
