@@ -1,206 +1,248 @@
 rules_version = '2';
 
 // ===============================================================
-// FieldRead OS - Cloud Firestore Security Rules
-// ===============================================================
-// Production-grade security rules and schema validation for
-// FieldRead OS Tactical Courtship Decision Engine backend.
-//
-// Assumed Data Models:
-// ---------------------------------------------------------------
-// 1. wallets/{uid}
-//    - uid / userId: string (matches document id / auth.uid)
-//    - balancePaise: number (>= 0)
-//    - singleScanUnlockTokens: number (>= 0)
-//    - freeDailyScansRemaining: number (>= 0)
-//    - currency: 'INR' | 'USD'
-//    - Read: Owner only (request.auth.uid == uid)
-//    - Write: Strictly forbidden from client (Admin SDK only)
-//
-// 2. coaches/{coachId}
-//    - id / coachId: string (matches auth.uid)
-//    - alias: string (1-64 chars)
-//    - bio: string (optional, <= 2000 chars)
-//    - avatarUrl: string (optional, <= 2000 chars)
-//    - isDutyOn: bool
-//    - withdrawablePaise: number (MUTATED BY ADMIN SDK ONLY)
-//    - baseRatePerMinuteInr: number (>= 0)
-//    - upiVpa: string (<= 100 chars)
-//    - panNumber: string (Section 194J TDS)
-//    - kycStatus: 'PENDING' | 'VERIFIED' | 'REJECTED'
-//    - Read: Authenticated users
-//    - Create/Delete: Forbidden from client
-//    - Update: Coach only (request.auth.uid == coachId), withdrawablePaise immutable
-//
-// 3. prospects/{prospectId}
-//    - id: string (<= 128 chars)
-//    - userId: string (matches auth.uid)
-//    - name: string (<= 100 chars)
-//    - platform: string (<= 50 chars)
-//    - stage: string (<= 50 chars)
-//    - tensionState: string (<= 50 chars)
-//    - lastMessageSnippet: string (optional, <= 2000 chars)
-//    - notes: string (optional, <= 10000 chars)
-//    - recommendedMove: string (optional, <= 2000 chars)
-//    - cooldownEndsAt: number (optional)
-//    - history: list of maps (optional, <= 500 items)
-//    - Read/Delete: Owner only (resource.data.userId == request.auth.uid)
-//    - Create: Owner only (request.resource.data.userId == request.auth.uid)
-//    - Update: Owner only (resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid)
-//
-// 4. scans/{scanId} & situations/{situationId}
-//    - id / scanId: string (<= 128 chars)
-//    - userId: string (matches auth.uid)
-//    - prospectId: string (optional, <= 128 chars)
-//    - inputMode: 'paste' | 'screenshot' | 'voice'
-//    - herMessage: string (<= 5000 chars)
-//    - userDraft: string (optional, <= 5000 chars)
-//    - region: string (optional, <= 100 chars)
-//    - platform: string (optional, <= 50 chars)
-//    - icfuCategory: string (optional, <= 50 chars)
-//    - draftCritique: string (optional, <= 10000 chars)
-//    - calibratedMoves: list (optional, <= 20 items)
-//    - rawGeminiResponse: string (optional, <= 50000 chars)
-//    - Read/Delete: Owner only (resource.data.userId == request.auth.uid)
-//    - Create: Owner only (request.resource.data.userId == request.auth.uid)
-//    - Update: Owner only (resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid)
-//
-// 5. decks/{deckId}
-//    - id / deck_id: string
-//    - title: string
-//    - subtitle: string
-//    - is_free_preview: bool
-//    - isPro: bool
-//    - cardCount: number
-//    - Read: Free preview OR user.isPro == true OR deckId/deck_id in user.unlockedDecks
-//    - Write: Forbidden from client (Admin SDK only)
-//
-// 6. cards/{cardId}
-//    - id / card_id: string
-//    - deckId / deck_id: string
-//    - title: string
-//    - is_free_preview: bool
-//    - Read: Free preview OR user.isPro == true OR card's deckId/deck_id in user.unlockedDecks
-//    - Write: Forbidden from client (Admin SDK only)
-//
-// 7. users/{userId}
-//    - id / uid: string (matches userId)
-//    - alias: string (<= 64 chars)
-//    - isPro: bool (MUTATED BY ADMIN SDK ONLY)
-//    - unlockedDecks: list of strings (MUTATED BY ADMIN SDK ONLY)
-//    - freeDailyScans: number (>= 0)
-//    - preferences: map
-//    - Read: Owner only (request.auth.uid == userId)
-//    - Write: Owner only (request.auth.uid == userId), cannot self-grant isPro or alter unlockedDecks
-//
-// 8. transactions/{txId} & wallet_transactions/{txId}
-//    - userId: string
-//    - amount: number
-//    - currency: 'INR' | 'USD'
-//    - type: string
-//    - status: string
-//    - Read: Owner only (request.auth.uid == resource.data.userId)
-//    - Write: Forbidden from client (Admin SDK only)
-//
-// 9. warRoomSessions/{sessionId} & liveSessions/{sessionId}
-//    - id / sessionId: string
-//    - userId / clientId: string
-//    - coachId: string
-//    - status: 'ringing' | 'active' | 'completed' | 'cancelled' | 'timed_out'
-//    - teleprompterLogs: list of maps
-//    - Read/Write: Session participants (request.auth.uid == resource.data.userId || request.auth.uid == resource.data.coachId)
-//
-// 10. photoAudits/{auditId}
-//    - id: string
-//    - userId: string
-//    - photoUrls: list of strings (<= 20 items)
-//    - overallEloScore: number
-//    - rankings: list of maps (<= 50 items)
-//    - Read/Write: Owner (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid)
-//
-// 11. voiceNotes/{voiceNoteId}
-//    - id: string
-//    - userId: string
-//    - drillScenarioId: string
-//    - drillMode: 'voicenote' | 'call'
-//    - Read/Write: Owner (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid)
+// FieldRead OS / Cluetri - Cloud Firestore Security Rules
 // ===============================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ===============================================================
-    // Global Default Deny
-    // ===============================================================
-    match /{document=**} {
-      allow read, write: if false;
+    // --- Auth & Role Helpers ---
+    function isSignedIn() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
-    // ===============================================================
-    // Common Helper Functions
-    // ===============================================================
-
-    // Check if client request is authenticated
-    function isAuthenticated() {
-      return request.auth != null;
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    // Check if client is the document owner by matching auth UID
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    function isAdmin() {
+      return isSignedIn() && userDoc().get('isAdmin', false) == true;
     }
 
-    // Check that immutable fields have not been altered in an update operation
-    function areImmutableFieldsUnchanged(fields) {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    function isApprovedCoach() {
+      return isSignedIn()
+        && (userDoc().get('isVerifiedCoach', false) == true || isAdmin());
     }
 
-    // Validate timestamp or ISO string format
-    function isValidTimestamp(val) {
-      return val is timestamp || (val is string && val.size() >= 10 && val.size() <= 40);
+    // --- Ownership & Utility Helpers ---
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
     }
 
-    // Check if the current user is a session participant (user, client, or coach)
+    function isDocOwner() {
+      return isSignedIn() && (
+        (('uid' in resource.data) && resource.data.uid == request.auth.uid) ||
+        (('userId' in resource.data) && resource.data.userId == request.auth.uid)
+      );
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) ||
+             request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) ||
+             request.resource.data.uid == resource.data.uid;
+    }
+
     function isSessionParticipant(data) {
-      return isAuthenticated() && (
+      return isSignedIn() && (
         (('userId' in data) && request.auth.uid == data.userId) ||
         (('clientId' in data) && request.auth.uid == data.clientId) ||
         (('coachId' in data) && request.auth.uid == data.coachId)
       );
     }
 
-    // ===============================================================
-    // Domain Validator Functions (Validator Function Pattern)
-    // ===============================================================
-
-    // --- Users Collection Validator ---
-    function isValidUser(data) {
-      return (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
-        (!('uid' in data) || (data.uid is string && data.uid.size() <= 128)) &&
-        (!('alias' in data) || (data.alias is string && data.alias.size() <= 64)) &&
-        (!('email' in data) || (data.email is string && data.email.size() <= 100)) &&
-        (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 25)) &&
-        (!('countryCode' in data) || (data.countryCode is string && data.countryCode.size() <= 10)) &&
-        (!('isPro' in data) || (data.isPro is bool)) &&
-        (!('unlockedDecks' in data) || (data.unlockedDecks is list && data.unlockedDecks.size() <= 100)) &&
-        (!('freeDailyScans' in data) || (data.freeDailyScans is number && data.freeDailyScans >= 0)) &&
-        (!('freeDailyScansRemaining' in data) || (data.freeDailyScansRemaining is number && data.freeDailyScansRemaining >= 0)) &&
-        (!('streakDays' in data) || (data.streakDays is number && data.streakDays >= 0)) &&
-        (!('activeProspectCount' in data) || (data.activeProspectCount is number && data.activeProspectCount >= 0)) &&
-        (!('preferences' in data) || (data.preferences is map));
+    // --- Schema, Diff & Type Validation Helpers ---
+    function onlyTouchesAllowedFields(allowedKeys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
     }
 
-    // --- Coach Update Validator ---
-    function isValidCoachUpdate(data) {
-      return (!('isDutyOn' in data) || data.isDutyOn is bool) &&
-        (!('bio' in data) || (data.bio is string && data.bio.size() <= 2000)) &&
-        (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 2000)) &&
-        (!('alias' in data) || (data.alias is string && data.alias.size() >= 1 && data.alias.size() <= 64)) &&
-        (!('baseRatePerMinuteInr' in data) || (data.baseRatePerMinuteInr is number && data.baseRatePerMinuteInr >= 0)) &&
-        (!('upiVpa' in data) || (data.upiVpa is string && data.upiVpa.size() <= 100));
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
     }
 
-    // --- Prospects Collection Validator ---
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function isNonEmptyString(val, maxLen) {
+      return val is string && val.size() > 0 && val.size() <= maxLen;
+    }
+
+    function isOptionalString(data, field, maxLen) {
+      return !(field in data) ||
+             data[field] == null ||
+             (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isOptionalNonEmptyString(data, field, maxLen) {
+      return !(field in data) || isNonEmptyString(data[field], maxLen);
+    }
+
+    function isValidUrl(url) {
+      return url is string &&
+             url.size() > 0 &&
+             url.size() <= 2048 &&
+             (url.matches('^https://.*') || url.matches('^http://.*'));
+    }
+
+    function isOptionalValidUrl(data, field) {
+      return !(field in data) || data[field] == null || isValidUrl(data[field]);
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+             email.size() <= 320 &&
+             email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isOptionalValidEmail(data, field) {
+      return !(field in data) || data[field] == null || isValidEmail(data[field]);
+    }
+
+    function isOptionalBool(data, field) {
+      return !(field in data) || data[field] is bool;
+    }
+
+    function isOptionalTimestamp(data, field) {
+      return !(field in data) || data[field] == null || data[field] is timestamp;
+    }
+
+    function isOptionalList(data, field, maxSize) {
+      return !(field in data) || (data[field] is list && data[field].size() <= maxSize);
+    }
+
+    function isZeroOrAbsent(data, field) {
+      return !(field in data) || (data[field] is number && data[field] == 0);
+    }
+
+    function isFalseOrAbsent(data, field) {
+      return !(field in data) || data[field] == false;
+    }
+
+    function isNullOrAbsent(data, field) {
+      return !(field in data) || data[field] == null;
+    }
+
+    function isEmptyListOrAbsent(data, field) {
+      return !(field in data) || (data[field] is list && data[field].size() == 0);
+    }
+
+    // --- Domain Validators ---
+    function isValidUserPreferences(prefs) {
+      return prefs is map &&
+             prefs.keys().hasOnly(['dialect', 'theme', 'notifications', 'stealthMode', 'region', 'piiScrubberActive', 'decoyTitlePreset']) &&
+             (!('dialect' in prefs) || prefs.dialect in ['metro_hinglish', 'pure_english']) &&
+             (!('theme' in prefs) || prefs.theme in ['dark', 'light', 'system', 'obsidian', 'daylight']) &&
+             (!('notifications' in prefs) || prefs.notifications is bool) &&
+             (!('stealthMode' in prefs) || prefs.stealthMode is bool);
+    }
+
+    function isValidUserProfileFields(data) {
+      return isOptionalNonEmptyString(data, 'alias', 64) &&
+             (!('replyStyle' in data) || data.replyStyle in ['metro_hinglish', 'pure_english']) &&
+             (!('preferences' in data) || isValidUserPreferences(data.preferences)) &&
+             (!('theme' in data) || data.theme in ['dark', 'light', 'system', 'obsidian', 'daylight']) &&
+             isOptionalBool(data, 'onboardingCompleted') &&
+             isOptionalString(data, 'archetype', 80) &&
+             isOptionalTimestamp(data, 'updatedAt');
+    }
+
+    function isValidUserCreate(data, uid) {
+      return hasOnlyAllowedFields([
+               'id', 'uid', 'alias', 'email', 'photoURL', 'phoneNumber', 'countryCode', 'authProvider', 'role',
+               'replyStyle', 'preferences', 'theme', 'onboardingCompleted', 'archetype',
+               'streakDays', 'activeProspectCount', 'isPro', 'proExpiresAt', 'coachMinutesBalance',
+               'freeScansRemaining', 'freeDailyScans', 'freeDailyScansRemaining',
+               'isVerifiedCoach', 'payoutBalance', 'unlockedDecks',
+               'createdAt', 'updatedAt'
+             ]) &&
+             uidUnchanged() &&
+             (!('id' in data) || data.id == uid) &&
+             isOptionalValidEmail(data, 'email') &&
+             isOptionalValidUrl(data, 'photoURL') &&
+             (!('authProvider' in data) || data.authProvider in ['google', 'password', 'anonymous', 'apple', 'phone']) &&
+             (!('role' in data) || data.role in ['user', 'client']) &&
+             isFalseOrAbsent(data, 'isPro') &&
+             isNullOrAbsent(data, 'proExpiresAt') &&
+             (!('coachMinutesBalance' in data) || (data.coachMinutesBalance is number && data.coachMinutesBalance >= 0 && data.coachMinutesBalance <= 5)) &&
+             (!('freeScansRemaining' in data) || (data.freeScansRemaining is int && data.freeScansRemaining >= 0 && data.freeScansRemaining <= 3)) &&
+             (!('freeDailyScans' in data) || (data.freeDailyScans is int && data.freeDailyScans >= 0 && data.freeDailyScans <= 3)) &&
+             (!('freeDailyScansRemaining' in data) || (data.freeDailyScansRemaining is int && data.freeDailyScansRemaining >= 0 && data.freeDailyScansRemaining <= 3)) &&
+             isFalseOrAbsent(data, 'isVerifiedCoach') &&
+             isZeroOrAbsent(data, 'payoutBalance') &&
+             isEmptyListOrAbsent(data, 'unlockedDecks') &&
+             (!('streakDays' in data) || (data.streakDays is int && data.streakDays >= 0 && data.streakDays <= 365)) &&
+             isOptionalTimestamp(data, 'createdAt') &&
+             isValidUserProfileFields(data);
+    }
+
+    function isValidVenueDetails(venue) {
+      return venue == null || (
+        venue is map &&
+        venue.keys().hasOnly(['venue', 'dateTime', 'transitTime', 'backupPlan', 'seatingTactic']) &&
+        isOptionalString(venue, 'venue', 300) &&
+        isOptionalString(venue, 'dateTime', 120) &&
+        isOptionalString(venue, 'transitTime', 120) &&
+        isOptionalString(venue, 'backupPlan', 300) &&
+        isOptionalString(venue, 'seatingTactic', 500)
+      );
+    }
+
+    function isValidFieldReport(report) {
+      return report == null || (
+        report is map &&
+        report.keys().hasOnly([
+          'outcomeRating', 'physicalEscalation', 'nextMoveRecommendation',
+          'coachDebriefRequested', 'dateNotes', 'redFlagsIdentified', 'loggedAt'
+        ]) &&
+        (!('outcomeRating' in report) || (report.outcomeRating is number && report.outcomeRating >= 1 && report.outcomeRating <= 5)) &&
+        isOptionalString(report, 'physicalEscalation', 300) &&
+        isOptionalString(report, 'nextMoveRecommendation', 1000) &&
+        isOptionalBool(report, 'coachDebriefRequested') &&
+        isOptionalString(report, 'dateNotes', 5000) &&
+        isOptionalList(report, 'redFlagsIdentified', 30) &&
+        isOptionalString(report, 'loggedAt', 100)
+      );
+    }
+
+    function isValidMatch(data, uid) {
+      return hasRequiredFields(['name']) &&
+             hasOnlyAllowedFields([
+               'id', 'uid', 'name', 'platform', 'stage', 'tensionState',
+               'matchedTime', 'lastMessageSnippet', 'notes', 'recommendedMove',
+               'cooldownEndsAt', 'cooldownReason', 'venueDetails', 'fieldReport',
+               'history', 'pastRedFlags', 'archived', 'createdAt', 'updatedAt'
+             ]) &&
+             (!('id' in data) || isNonEmptyString(data.id, 100)) &&
+             (!('uid' in data) || data.uid == uid) &&
+             isNonEmptyString(data.name, 100) &&
+             (!('platform' in data) || data.platform in ['Hinge', 'Bumble', 'Tinder', 'In-person', 'IG', 'WhatsApp', 'Other']) &&
+             (!('stage' in data) || data.stage in ['cold', 'banter', 'cooldown', 'logistics', 'debriefed']) &&
+             (!('tensionState' in data) || data.tensionState in ['CHALLENGE', 'INTEREST', 'FRIENDLY', 'UNRESPONSIVE']) &&
+             isOptionalString(data, 'matchedTime', 100) &&
+             isOptionalString(data, 'lastMessageSnippet', 1000) &&
+             isOptionalString(data, 'notes', 5000) &&
+             isOptionalString(data, 'recommendedMove', 1000) &&
+             (!('cooldownEndsAt' in data) || data.cooldownEndsAt == null || (data.cooldownEndsAt is number && data.cooldownEndsAt >= 0) || data.cooldownEndsAt is timestamp) &&
+             isOptionalString(data, 'cooldownReason', 1000) &&
+             (!('venueDetails' in data) || isValidVenueDetails(data.venueDetails)) &&
+             (!('fieldReport' in data) || isValidFieldReport(data.fieldReport)) &&
+             isOptionalList(data, 'history', 200) &&
+             isOptionalList(data, 'pastRedFlags', 50) &&
+             isOptionalBool(data, 'archived') &&
+             isOptionalTimestamp(data, 'createdAt') &&
+             isOptionalTimestamp(data, 'updatedAt');
+    }
+
     function isValidProspect(data) {
       return data.userId is string && data.userId.size() <= 128 &&
         (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
@@ -220,7 +262,6 @@ service cloud.firestore {
         (!('pastRedFlags' in data) || (data.pastRedFlags is list && data.pastRedFlags.size() <= 50));
     }
 
-    // --- Scans & Situations Collection Validator ---
     function isValidScan(data) {
       return data.userId is string && data.userId.size() <= 128 &&
         (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
@@ -237,7 +278,6 @@ service cloud.firestore {
         (!('rawGeminiResponse' in data) || (data.rawGeminiResponse is string && data.rawGeminiResponse.size() <= 50000));
     }
 
-    // --- Live & War Room Sessions Validator ---
     function isValidLiveSession(data) {
       return (!('status' in data) || (data.status in ['ringing', 'active', 'completed', 'cancelled', 'timed_out'])) &&
         (!('targetName' in data) || (data.targetName is string && data.targetName.size() <= 100)) &&
@@ -247,7 +287,6 @@ service cloud.firestore {
         (!('teleprompterLogs' in data) || (data.teleprompterLogs is list && data.teleprompterLogs.size() <= 500));
     }
 
-    // --- Photo Audits Validator ---
     function isValidPhotoAudit(data) {
       return data.userId is string && data.userId.size() <= 128 &&
         (!('photoUrls' in data) || (data.photoUrls is list && data.photoUrls.size() <= 20)) &&
@@ -257,7 +296,6 @@ service cloud.firestore {
         (!('coachNotes' in data) || (data.coachNotes is string && data.coachNotes.size() <= 5000));
     }
 
-    // --- Voice Notes Validator ---
     function isValidVoiceNote(data) {
       return data.userId is string && data.userId.size() <= 128 &&
         (!('drillScenarioId' in data) || (data.drillScenarioId is string && data.drillScenarioId.size() <= 50)) &&
@@ -271,245 +309,298 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // Collection Access Control Rules
+    // Specified Role & Coaching Collections (Prompt Mandate)
     // ===============================================================
 
-    // ---------------------------------------------------------------
-    // 1. wallets/{uid}
-    // Read: ONLY if request.auth != null && request.auth.uid == uid.
-    // Write: Strictly forbidden (false). Mutated via Admin SDK only.
-    // ---------------------------------------------------------------
-    match /wallets/{uid} {
-      allow read: if isAuthenticated() && request.auth.uid == uid;
-      allow write: if false;
-    }
-
-    // ---------------------------------------------------------------
-    // 2. coaches/{coachId}
-    // Read: Authenticated users.
-    // Create & Delete: Forbidden from client (false).
-    // Update: Coach only (request.auth.uid == coachId).
-    //   withdrawablePaise CANNOT be modified or introduced by client:
-    //   request.resource.data.withdrawablePaise == resource.data.withdrawablePaise
-    // ---------------------------------------------------------------
+    // --- 1. Approved Coach Profiles & Payout Balances ---
     match /coaches/{coachId} {
-      allow read: if isAuthenticated();
-      allow create, delete: if false;
+      // Only approved coaches and admins can read coach records & payout balances (withdrawablePaise)
+      allow read: if isApprovedCoach() || isAdmin();
 
-      allow update: if isAuthenticated() &&
-        request.auth.uid == coachId &&
-        // withdrawablePaise CANNOT be modified by client (and if absent, cannot be introduced)
-        ((!('withdrawablePaise' in resource.data) && !('withdrawablePaise' in request.resource.data)) ||
-         (('withdrawablePaise' in resource.data) && ('withdrawablePaise' in request.resource.data) &&
-          request.resource.data.withdrawablePaise == resource.data.withdrawablePaise)) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['withdrawablePaise']) &&
-        isValidCoachUpdate(request.resource.data) &&
-        areImmutableFieldsUnchanged(['id', 'coachId', 'createdAt', 'kycStatus', 'totalEarningsInr', 'pendingPayoutInr', 'totalWithdrawnInr', 'withdrawablePaise']);
+      // Coaches can only toggle online status or edit bio; admins control verification & payouts
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isApprovedCoach()
+            && request.auth.uid == coachId
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['isOnline', 'bio', 'specialties', 'languages', 'updatedAt']));
     }
 
-    // ---------------------------------------------------------------
-    // 3. prospects/{prospectId}
-    // Read/Delete: request.auth != null && resource.data.userId == request.auth.uid
-    // Create: request.auth != null && request.resource.data.userId == request.auth.uid
-    // Update: request.auth != null && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid
-    // ---------------------------------------------------------------
-    match /prospects/{prospectId} {
-      allow read, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    // --- 2. Coach Applications (/become-a-coach) ---
+    match /coachApplications/{applicationId} {
+      // Admins read all; applicants can only read their own submission status
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.email == request.auth.token.email);
 
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid &&
-        isValidProspect(request.resource.data);
+      // Anyone submitting /become-a-coach creates a 'pending' record (cannot self-approve)
+      allow create: if request.resource.data.status == 'pending'
+        && request.resource.data.email is string
+        && request.resource.data.displayName is string;
 
-      allow update: if isAuthenticated() &&
-        resource.data.userId == request.auth.uid &&
-        request.resource.data.userId == request.auth.uid &&
-        isValidProspect(request.resource.data) &&
-        areImmutableFieldsUnchanged(['id', 'userId', 'createdAt']);
+      // Only admins can approve, reject, or delete applications
+      allow update, delete: if isAdmin();
     }
 
-    // ---------------------------------------------------------------
-    // 4. scans/{scanId} & situations/{situationId}
-    // Read/Delete: request.auth != null && resource.data.userId == request.auth.uid
-    // Create: request.auth != null && request.resource.data.userId == request.auth.uid
-    // Update: request.auth != null && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid
-    // ---------------------------------------------------------------
-    match /scans/{scanId} {
-      allow read, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    // --- 3. Live 1:1 Coaching Sessions & Incoming Queue ---
+    match /sessions/{sessionId} {
+      // Approved coaches & admins read queue/active chats; clients read only their own
+      allow read: if isApprovedCoach()
+        || isAdmin()
+        || (isSignedIn() && resource.data.clientId == request.auth.uid);
 
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid &&
-        isValidScan(request.resource.data);
+      // Signed-in clients can create a new session request for themselves
+      allow create: if isSignedIn()
+        && request.resource.data.clientId == request.auth.uid
+        && request.resource.data.status in ['waiting', 'queued'];
 
-      allow update: if isAuthenticated() &&
-        resource.data.userId == request.auth.uid &&
-        request.resource.data.userId == request.auth.uid &&
-        isValidScan(request.resource.data) &&
-        areImmutableFieldsUnchanged(['id', 'scanId', 'userId', 'createdAt']);
+      // Approved coaches claim & reply; clients can end/rate; billedMinutes stays server-locked
+      allow update: if isAdmin()
+        || (isApprovedCoach()
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                 .hasAny(['billedMinutes', 'clientId']))
+        || (isSignedIn()
+            && resource.data.clientId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'rating', 'endedAt', 'updatedAt']));
+
+      allow delete: if isAdmin();
     }
 
-    match /situations/{situationId} {
-      allow read, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    // --- 4. Dating Profile Photo Reviews & Queue ---
+    match /photoReviews/{reviewId} {
+      // Approved coaches & admins read review queue; clients read only their own submission
+      allow read: if isApprovedCoach()
+        || isAdmin()
+        || (isSignedIn() && resource.data.clientId == request.auth.uid);
 
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid &&
-        isValidScan(request.resource.data);
+      // Signed-in clients can submit a redacted photo review request
+      allow create: if isSignedIn()
+        && request.resource.data.clientId == request.auth.uid
+        && request.resource.data.status == 'pending';
 
-      allow update: if isAuthenticated() &&
-        resource.data.userId == request.auth.uid &&
-        request.resource.data.userId == request.auth.uid &&
-        isValidScan(request.resource.data) &&
-        areImmutableFieldsUnchanged(['id', 'scanId', 'userId', 'createdAt']);
+      // Approved coaches claim & submit photo rankings + voice tips
+      allow update: if isAdmin()
+        || (isApprovedCoach()
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                 .hasAny(['clientId']));
+
+      allow delete: if isAdmin();
     }
 
-    // ---------------------------------------------------------------
-    // 5. decks/{deckId}
-    // Client write: Forbidden (false).
-    // Read:
-    //   resource.data.is_free_preview == true OR if user is authenticated and:
-    //   get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isPro == true OR
-    //   deckId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.unlockedDecks OR
-    //   ('deck_id' in resource.data && resource.data.deck_id in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.unlockedDecks)
-    // ---------------------------------------------------------------
-    match /decks/{deckId} {
-      allow read: if (('is_free_preview' in resource.data) && resource.data.is_free_preview == true) ||
-        (isAuthenticated() && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isPro == true ||
-          ('unlockedDecks' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
-            (deckId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.unlockedDecks ||
-             (('deck_id' in resource.data) && resource.data.deck_id in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.unlockedDecks)))
-        ));
+    // ===============================================================
+    // Preserved Core Application Collections
+    // ===============================================================
 
+    // --- 5. User Profiles, Settings & Entitlements ---
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+
+      allow create: if isOwner(uid) &&
+                       isValidUserCreate(request.resource.data, uid);
+
+      allow update: if (isOwner(uid) &&
+                        uidNotModified() &&
+                        onlyTouchesAllowedFields([
+                          'alias', 'replyStyle', 'preferences', 'theme',
+                          'onboardingCompleted', 'archetype', 'updatedAt'
+                        ]) &&
+                        areImmutableFieldsUnchanged([
+                          'id', 'uid', 'role', 'isPro', 'proExpiresAt',
+                          'coachMinutesBalance', 'freeScansRemaining',
+                          'freeDailyScans', 'freeDailyScansRemaining',
+                          'isVerifiedCoach', 'payoutBalance', 'unlockedDecks',
+                          'createdAt'
+                        ]) &&
+                        isValidUserProfileFields(request.resource.data)) || isAdmin();
+
+      allow delete: if isAdmin();
+
+      // Subcollection: Private Match CRM Dossiers
+      match /matches/{matchId} {
+        allow read: if isOwner(uid) || isAdmin();
+
+        allow create: if isOwner(uid) &&
+                         isValidMatch(request.resource.data, uid);
+
+        allow update: if isOwner(uid) &&
+                         uidNotModified() &&
+                         areImmutableFieldsUnchanged(['createdAt']) &&
+                         isValidMatch(request.resource.data, uid);
+
+        allow delete: if isOwner(uid) || isAdmin();
+      }
+    }
+
+    // --- 6. Wallets (Consumable Ledger - Server/Admin Mutated Only) ---
+    match /wallets/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
       allow write: if false;
     }
 
-    // ---------------------------------------------------------------
-    // 6. cards/{cardId}
-    // Client write: Forbidden (false).
-    // Read:
-    //   resource.data.is_free_preview == true OR if user is authenticated and:
-    //   get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isPro == true OR
-    //   ('deckId' in resource.data && resource.data.deckId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.unlockedDecks) OR
-    //   ('deck_id' in resource.data && resource.data.deck_id in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.unlockedDecks)
-    // ---------------------------------------------------------------
-    match /cards/{cardId} {
-      allow read: if (('is_free_preview' in resource.data) && resource.data.is_free_preview == true) ||
-        (isAuthenticated() && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isPro == true ||
-          ('unlockedDecks' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
-            ((('deckId' in resource.data) && resource.data.deckId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.unlockedDecks) ||
-             (('deck_id' in resource.data) && resource.data.deck_id in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.unlockedDecks)))
-        ));
-
-      allow write: if false;
-    }
-
-    // ---------------------------------------------------------------
-    // 7. users/{userId}
-    // Read: request.auth != null && request.auth.uid == userId
-    // Write: request.auth != null && request.auth.uid == userId,
-    //   ensuring client cannot self-grant isPro or alter unlockedDecks
-    //   on update: request.resource.data.isPro == resource.data.isPro &&
-    //              request.resource.data.unlockedDecks == resource.data.unlockedDecks
-    // ---------------------------------------------------------------
-    match /users/{userId} {
-      allow read: if isAuthenticated() && request.auth.uid == userId;
-
-      allow create: if isAuthenticated() &&
-        request.auth.uid == userId &&
-        isValidUser(request.resource.data) &&
-        // Prevent self-granting isPro or unlockedDecks on creation
-        (!('isPro' in request.resource.data) || request.resource.data.isPro == false) &&
-        (!('unlockedDecks' in request.resource.data) || request.resource.data.unlockedDecks.size() == 0);
-
-      allow update: if isAuthenticated() &&
-        request.auth.uid == userId &&
-        isValidUser(request.resource.data) &&
-        // isPro and unlockedDecks are strictly immutable from client
-        request.resource.data.isPro == resource.data.isPro &&
-        request.resource.data.unlockedDecks == resource.data.unlockedDecks &&
-        areImmutableFieldsUnchanged(['id', 'uid', 'createdAt']);
-
-      allow delete: if false;
-    }
-
-    // ---------------------------------------------------------------
-    // 8. transactions/{txId} & wallet_transactions/{txId}
-    // Read: request.auth != null && resource.data.userId == request.auth.uid
-    // Write: false (Admin SDK only)
-    // ---------------------------------------------------------------
-    match /transactions/{txId} {
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    // --- 7. Immutable Financial Ledgers & Audit Logs ---
+    match /walletTransactions/{txId} {
+      allow read: if isDocOwner() || isAdmin();
       allow write: if false;
     }
 
     match /wallet_transactions/{txId} {
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow read: if isDocOwner() || isAdmin();
       allow write: if false;
     }
 
-    // ---------------------------------------------------------------
-    // 9. warRoomSessions/{sessionId} & liveSessions/{sessionId}
-    // Read/write: Allowed for session participants
-    //   (request.auth.uid == resource.data.userId || request.auth.uid == resource.data.coachId)
-    // ---------------------------------------------------------------
+    match /transactions/{txId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow write: if false;
+    }
+
+    // --- 8. Strategy & Scenario Drill Decks ---
+    match /decks/{deckId} {
+      allow read: if (('is_free_preview' in resource.data) && resource.data.is_free_preview == true) ||
+        (isSignedIn() && (
+          userDoc().get('isPro', false) == true ||
+          ('unlockedDecks' in userDoc() &&
+            (deckId in userDoc().unlockedDecks ||
+             (('deck_id' in resource.data) && resource.data.deck_id in userDoc().unlockedDecks))) ||
+          isAdmin()
+        ));
+
+      allow write: if isAdmin();
+    }
+
+    // --- 9. Tactical Drill Cards ---
+    match /cards/{cardId} {
+      allow read: if (('is_free_preview' in resource.data) && resource.data.is_free_preview == true) ||
+        (isSignedIn() && (
+          userDoc().get('isPro', false) == true ||
+          ('unlockedDecks' in userDoc() &&
+            ((('deckId' in resource.data) && resource.data.deckId in userDoc().unlockedDecks) ||
+             (('deck_id' in resource.data) && resource.data.deck_id in userDoc().unlockedDecks))) ||
+          isAdmin()
+        ));
+
+      allow write: if isAdmin();
+    }
+
+    // --- 10. Screenshot & Message Scans / Situations ---
+    match /scans/{scanId} {
+      allow read, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        isValidScan(request.resource.data);
+
+      allow update: if (isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid &&
+        isValidScan(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id', 'scanId', 'userId', 'createdAt'])) || isAdmin();
+    }
+
+    match /situations/{situationId} {
+      allow read, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        isValidScan(request.resource.data);
+
+      allow update: if (isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid &&
+        isValidScan(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id', 'scanId', 'userId', 'createdAt'])) || isAdmin();
+    }
+
+    // --- 11. Private Prospects CRM Dossiers ---
+    match /prospects/{prospectId} {
+      allow read, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        isValidProspect(request.resource.data);
+
+      allow update: if (isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid &&
+        isValidProspect(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id', 'userId', 'createdAt'])) || isAdmin();
+    }
+
+    // --- 12. War Room Sessions & Teleprompter Logs ---
     match /warRoomSessions/{sessionId} {
-      allow read, delete: if isSessionParticipant(resource.data);
+      allow read, delete: if isSessionParticipant(resource.data) || isAdmin();
 
-      allow create: if isSessionParticipant(request.resource.data) &&
-        isValidLiveSession(request.resource.data);
+      allow create: if (isSessionParticipant(request.resource.data) && isValidLiveSession(request.resource.data)) || isAdmin();
 
-      allow update: if isSessionParticipant(resource.data) &&
+      allow update: if (isSessionParticipant(resource.data) &&
         isValidLiveSession(request.resource.data) &&
-        areImmutableFieldsUnchanged(['id', 'sessionId', 'createdAt']);
+        areImmutableFieldsUnchanged(['id', 'sessionId', 'createdAt'])) || isAdmin();
     }
 
     match /liveSessions/{sessionId} {
-      allow read, delete: if isSessionParticipant(resource.data);
+      allow read, delete: if isSessionParticipant(resource.data) || isAdmin();
 
-      allow create: if isSessionParticipant(request.resource.data) &&
-        isValidLiveSession(request.resource.data);
+      allow create: if (isSessionParticipant(request.resource.data) && isValidLiveSession(request.resource.data)) || isAdmin();
 
-      allow update: if isSessionParticipant(resource.data) &&
+      allow update: if (isSessionParticipant(resource.data) &&
         isValidLiveSession(request.resource.data) &&
-        areImmutableFieldsUnchanged(['id', 'sessionId', 'createdAt']);
+        areImmutableFieldsUnchanged(['id', 'sessionId', 'createdAt'])) || isAdmin();
     }
 
-    // ---------------------------------------------------------------
-    // 10. photoAudits/{auditId}
-    // Read/write: Allowed for owner
-    //   (request.auth != null && (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid))
-    // ---------------------------------------------------------------
-    match /photoAudits/{auditId} {
-      allow read, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    match /live_sessions/{sessionId} {
+      allow read, delete: if isSessionParticipant(resource.data) || isAdmin();
 
-      allow create: if isAuthenticated() &&
+      allow create: if (isSessionParticipant(request.resource.data) && isValidLiveSession(request.resource.data)) || isAdmin();
+
+      allow update: if (isSessionParticipant(resource.data) &&
+        isValidLiveSession(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id', 'sessionId', 'createdAt'])) || isAdmin();
+    }
+
+    // --- 13. Photo Audits & Elo Rankings ---
+    match /photoAudits/{auditId} {
+      allow read, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
         isValidPhotoAudit(request.resource.data);
 
-      allow update: if isAuthenticated() &&
+      allow update: if (isSignedIn() &&
         (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid) &&
         isValidPhotoAudit(request.resource.data) &&
-        areImmutableFieldsUnchanged(['id', 'userId', 'createdAt']);
+        areImmutableFieldsUnchanged(['id', 'userId', 'createdAt'])) || isAdmin();
     }
 
-    // ---------------------------------------------------------------
-    // 11. voiceNotes/{voiceNoteId}
-    // Bio-telemetry and tonality calibrations.
-    // Read/write: Owner only.
-    // ---------------------------------------------------------------
-    match /voiceNotes/{voiceNoteId} {
-      allow read, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    match /photo_audits/{auditId} {
+      allow read, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
 
-      allow create: if isAuthenticated() &&
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        isValidPhotoAudit(request.resource.data);
+
+      allow update: if (isSignedIn() &&
+        (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid) &&
+        isValidPhotoAudit(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id', 'userId', 'createdAt'])) || isAdmin();
+    }
+
+    // --- 14. Voice Notes & Tonality Calibration ---
+    match /voiceNotes/{voiceNoteId} {
+      allow read, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
         isValidVoiceNote(request.resource.data);
 
-      allow update: if isAuthenticated() &&
+      allow update: if (isSignedIn() &&
         resource.data.userId == request.auth.uid &&
         request.resource.data.userId == request.auth.uid &&
         isValidVoiceNote(request.resource.data) &&
-        areImmutableFieldsUnchanged(['id', 'userId', 'createdAt']);
+        areImmutableFieldsUnchanged(['id', 'userId', 'createdAt'])) || isAdmin();
     }
 
+    // --- 15. Default Deny Fallback ---
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
